@@ -36,6 +36,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "b23cc054-e9d9-4d42-b4fa-a67dc67e3fa0"
+      }
+    },
+    "owner": "haniefutama"
   }
 }
