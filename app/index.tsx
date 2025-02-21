@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { Link, Stack } from 'expo-router';
 import {
   View,
   FlatList,
@@ -16,11 +17,12 @@ import * as FileSystem from 'expo-file-system';
 import { JournalEntry, RecordingStats } from './types';
 import { FontAwesome } from '@expo/vector-icons';
 import LoadingSpinner from './components/LoadingSpinner';
-import Header from './components/Header';
 import JournalEntryItem from './components/JournalEntryItem';
 import SearchBar from './components/SearchBar';
 import CategorySelector from './components/CategorySelector';
 import RecordingInterface from './components/RecordingInterface';
+import TranscriptionService from './services/TranscriptionService';
+import RedownloadButton from './components/RedownloadButton';
 
 const DEFAULT_CATEGORIES = ['Personal', 'Work', 'Ideas', 'Tasks', 'Meeting'];
 
@@ -44,10 +46,21 @@ export default function Index() {
   const [newCategory, setNewCategory] = useState('');
   const recordingInterval = useRef<NodeJS.Timeout>();
   const amplitudeInterval = useRef<NodeJS.Timeout>();
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const transcriptionService = useRef<TranscriptionService>(TranscriptionService.getInstance());
 
   useEffect(() => {
     loadEntries();
     loadSettings();
+    const initializeTranscription = async () => {
+      try {
+        await transcriptionService.current.initialize();
+      } catch (error) {
+        console.error('Failed to initialize transcription service:', error);
+      }
+    };
+
+    initializeTranscription();
     return () => {
       if (recordingInterval.current) {
         clearInterval(recordingInterval.current);
@@ -117,11 +130,11 @@ export default function Index() {
       setRecordingStats(prev => ({ ...prev, isRecording: true }));
 
       // Track recording duration
-      let duration = 0;
+      let startTime = Date.now();
       recordingInterval.current = setInterval(() => {
-        duration += 1;
+        const duration = Date.now() - startTime;
         setRecordingStats(prev => ({ ...prev, duration }));
-      }, 1000);
+      }, 100);
 
       // Simulate amplitude changes (in a real app, you'd get this from the recording)
       amplitudeInterval.current = setInterval(() => {
@@ -159,18 +172,21 @@ export default function Index() {
       }
 
       if (uri) {
+        setIsTranscribing(true);
+        const transcription = await transcriptionService.current.transcribeAudio(uri);
+        
         const newEntry: JournalEntry = {
           id: Date.now().toString(),
-          text: "This is a placeholder for the Whisper.cpp transcription. In a real app, the audio would be transcribed here.",
+          text: transcription, //"This is testing transcription",
           audioUri: uri,
           createdAt: new Date().toISOString(),
           lastModifiedAt: new Date().toISOString(),
           categories: selectedCategories,
         };
 
-        const updatedEntries = [newEntry, ...entries];
-        setEntries(updatedEntries);
-        await AsyncStorage.setItem('journalEntries', JSON.stringify(updatedEntries));
+        setEntries((prevEntries) => [newEntry, ...prevEntries]);
+        await AsyncStorage.setItem('journalEntries', JSON.stringify([newEntry, ...entries]));
+        setIsTranscribing(false);
       }
     } catch (error) {
       console.error('Error stopping recording:', error);
@@ -352,52 +368,57 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <Header
-        title="Journal"
-        onSettingsPress={() => setShowSettings(true)}
+      <Stack.Screen
+        options={{
+          title: 'JournAI',
+          headerStyle: { backgroundColor: '#FFE5E5' },
+          headerTintColor: '#000',
+          headerTitleStyle: {
+            fontWeight: 'bold',
+          },
+          headerRight: () => (
+            <RedownloadButton />
+          ),
+        }}
       />
       <View style={styles.searchContainer}>
         <SearchBar
           value={searchQuery}
-          onChangeText={setSearchQuery}
+          onChangeText={(text) => setSearchQuery(text)}
           onClear={() => setSearchQuery('')}
         />
       </View>
-      <CategorySelector
-        categories={categories}
-        selectedCategories={selectedCategories}
-        onSelectCategory={toggleCategory}
-        onAddCategory={() => setShowAddCategory(true)}
-      />
+      {isTranscribing && (
+        <View style={styles.transcribingContainer}>
+          <Text style={styles.transcribingText}>Transcribing audio...</Text>
+        </View>
+      )}
       <FlatList
         data={filteredEntries}
         renderItem={renderItem}
-        keyExtractor={item => item.id}
-        style={styles.list}
-        contentContainerStyle={styles.listContent}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContainer}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No journal entries found</Text>
-            <Text style={styles.emptySubtext}>
-              {searchQuery || selectedCategories.length > 0
-                ? 'Try adjusting your search or filters'
-                : 'Tap the microphone to start recording'}
-            </Text>
-          </View>
+          isLoading ? (
+            <LoadingSpinner />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No journal entries yet</Text>
+            </View>
+          )
         }
       />
-      {isProcessing && (
-        <View style={styles.processingOverlay}>
-          <LoadingSpinner />
-          <Text style={styles.processingText}>Processing recording...</Text>
-        </View>
-      )}
       <RecordingInterface
-        stats={recordingStats}
+        stats={{
+          isRecording: recordingStats.isRecording,
+          duration: recordingStats.duration,
+          amplitude: 0,
+        }}
         onStartRecording={startRecording}
         onStopRecording={stopRecording}
-        disabled={isProcessing || isLoading}
+        disabled={isTranscribing || isProcessing || isLoading}
       />
+      
       <SettingsModal />
       <AddCategoryModal />
     </View>
@@ -413,10 +434,7 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 8,
   },
-  list: {
-    flex: 1,
-  },
-  listContent: {
+  listContainer: {
     padding: 16,
     paddingTop: 8,
   },
@@ -429,11 +447,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#333',
     marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
   },
   processingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -531,5 +544,17 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '500',
+  },
+  transcribingContainer: {
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingVertical: 8,
+  },
+  transcribingText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

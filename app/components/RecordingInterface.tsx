@@ -14,19 +14,22 @@ import Animated, {
   withTiming,
   useSharedValue,
   withDelay,
-  Easing
+  Easing,
 } from 'react-native-reanimated';
-import { RecordingStats } from '../types';
 
 interface RecordingInterfaceProps {
-  stats: RecordingStats;
+  stats: {
+    isRecording: boolean;
+    duration: number;
+    amplitude: number;
+  };
   onStartRecording: () => void;
   onStopRecording: () => void;
   disabled?: boolean;
 }
 
 const NUM_WAVES = 5;
-const WAVE_HEIGHT = 60;
+const WAVE_HEIGHT = 40;
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function RecordingInterface({
@@ -86,14 +89,15 @@ export default function RecordingInterface({
     }
   }, [stats.isRecording]);
 
+  const formatDuration = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
   useEffect(() => {
-    const minutes = Math.floor(stats.duration / 60000);
-    const seconds = Math.floor((stats.duration % 60000) / 1000);
-    setFormattedDuration(
-      `${minutes.toString().padStart(2, '0')}:${seconds
-        .toString()
-        .padStart(2, '0')}`
-    );
+    setFormattedDuration(formatDuration(stats.duration));
   }, [stats.duration]);
 
   const buttonAnimatedStyle = useAnimatedStyle(() => {
@@ -104,25 +108,11 @@ export default function RecordingInterface({
 
   return (
     <View style={styles.container}>
-      <View style={styles.waveContainer}>
-        {waveAnimations.map((_, index) => (
-          <Animated.View
-            key={index}
-            style={[
-              styles.wave,
-              useAnimatedStyle(() => ({
-                transform: [{ scale: waveAnimations[index].value }],
-                opacity: stats.isRecording
-                  ? withTiming(0.6 - index * 0.1)
-                  : withTiming(0),
-              })),
-            ]}
-          />
-        ))}
-      </View>
-      <View style={styles.durationContainer}>
-        <Text style={styles.durationText}>{formattedDuration}</Text>
-      </View>
+      {stats.isRecording && (
+        <View style={styles.durationContainer}>
+          <Text style={styles.durationText}>{formattedDuration}</Text>
+        </View>
+      )}
       <Animated.View style={[styles.buttonContainer, buttonAnimatedStyle]}>
         <TouchableOpacity
           style={[
@@ -147,11 +137,14 @@ export default function RecordingInterface({
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     padding: 20,
+    height: 150,
+    color: 'transparent',
   },
   waveContainer: {
     position: 'absolute',
+    top: 60,
     alignItems: 'center',
     justifyContent: 'center',
     width: SCREEN_WIDTH,
@@ -159,17 +152,18 @@ const styles = StyleSheet.create({
   },
   wave: {
     position: 'absolute',
-    width: WAVE_HEIGHT,
+    width: 4,
     height: WAVE_HEIGHT,
-    borderRadius: WAVE_HEIGHT / 2,
     backgroundColor: '#007AFF',
-    opacity: 0,
+    borderRadius: 2,
+    marginHorizontal: 4,
   },
   buttonContainer: {
     width: 120,
     height: 120,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 'auto',
   },
   button: {
     width: 80,
@@ -197,7 +191,7 @@ const styles = StyleSheet.create({
   },
   durationContainer: {
     position: 'absolute',
-    top: 0,
+    top: 20,
     paddingVertical: 8,
   },
   durationText: {
